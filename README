@@ -1,0 +1,36 @@
+Cache-Lrq version 0.01
+
+Least recently used cache queue in pure perl.
+
+    use Cache::Lrq;
+
+    my $cache_lrq = Cache::Lrq->new; # max 256 keys in default
+    my $cache_lrq = Cache::Lrq->new(size => 16); # max 16 keys
+    $cache_lrq->set($key => $value);
+    $value = $cache_lrq->get($key); # undef if not exists.
+    $latest_value = $cache_lrq->remove($key);
+
+This module provides you to put objects temporary in the
+sized queue working on Least Recently Used (LRU) way.
+Compatible with Kazuho Oku's Cache::LRU module.
+
+INSTALLATION
+
+To install this module, run the following commands:
+
+	perl Makefile.PL
+	make
+	make test
+	make install
+
+DEPENDENCIES
+
+None on runtime.
+Test::Base on test.
+
+COPYRIGHT AND LICENCE
+
+Copyright (C) 2013, MIZUTANI Tociyuki
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
