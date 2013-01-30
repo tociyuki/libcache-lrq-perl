@@ -3,12 +3,13 @@ use warnings;
 use strict;
 use Carp;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 # ring heads address
-my($FREE, $ROOT) = (0, 1);
+my($FREE, $ROOT) = (0, 4);
 # fields of entries in doubly linked ring
 my($BACK, $FORW, $FKEY, $FVAL) = (0, 1, 2, 3);
+my $NODESIZE = 4;
 
 ## no critic qw(AmbiguousNames)
 
@@ -20,7 +21,7 @@ sub new {
         '_index' => {},
         %arguments,
     }, ref $class || $class;
-    if (@{$self->{'_list'}} != $self->{'size'} + 2) {
+    if (@{$self->{'_list'}} != ($self->{'size'} + 2) * $NODESIZE) {
         $self->_clear;
     }
     return $self;
@@ -34,17 +35,17 @@ sub set {
         $self->get($key);
     }
     else {
-        if ($e->[$FREE][$FORW] == $FREE) {
-            $self->remove($e->[$e->[$ROOT][$FORW]]->[$FKEY]);
+        if ($e->[$FREE + $FORW] == $FREE) {
+            $self->remove($e->[$e->[$ROOT + $FORW] + $FKEY]);
         }
-        my $j = $e->[$FREE][$FORW];
+        my $j = $e->[$FREE + $FORW];
         $self->_move($j, $ROOT);
         $self->{'_index'}{$key} = $j;
-        $e->[$j][$FKEY] = $key;
+        $e->[$j + $FKEY] = $key;
     }
     my $i = $self->{'_index'}{$key};
     # $self->_assert or croak 'set: fail post condition';
-    $e->[$i][$FVAL] = $value;
+    $e->[$i + $FVAL] = $value;
     return $value;
 }
 
@@ -54,11 +55,11 @@ sub get {
     # $self->_assert or croak 'get: fail pre condition';
     my $i = $self->{'_index'}{$key};
     my $e = $self->{'_list'};
-    if ($i != $e->[$ROOT][$BACK]) {
+    if ($i != $e->[$ROOT + $BACK]) {
         $self->_move($i, $ROOT);
     }
     # $self->_assert or croak 'get: fail post condition';
-    return $e->[$i][$FVAL];
+    return $e->[$i + $FVAL];
 }
 
 sub remove {
@@ -67,9 +68,9 @@ sub remove {
     # $self->_assert or croak 'remove: fail pre condition';
     my $i = delete $self->{'_index'}{$key};
     my $e = $self->{'_list'};
-    my $value = $e->[$i][$FVAL];
+    my $value = $e->[$i + $FVAL];
     $self->_move($i, $FREE);
-    $e->[$i][$FKEY] = $e->[$i][$FVAL] = q();
+    $e->[$i + $FKEY] = $e->[$i + $FVAL] = q();
     # $self->_assert or croak 'remove: fail post condition';
     return $value;
 }
@@ -77,12 +78,12 @@ sub remove {
 sub _move {
     my($self, $from, $to) = @_;
     my $e = $self->{'_list'};
-    $e->[$e->[$from][$BACK]]->[$FORW] = $e->[$from][$FORW];
-    $e->[$e->[$from][$FORW]]->[$BACK] = $e->[$from][$BACK];
-    $e->[$from][$BACK] = $e->[$to][$BACK];
-    $e->[$from][$FORW] = $to;
-    $e->[$e->[$from][$BACK]]->[$FORW] = $from;
-    $e->[$e->[$from][$FORW]]->[$BACK] = $from;
+    $e->[$e->[$from + $BACK] + $FORW] = $e->[$from + $FORW];
+    $e->[$e->[$from + $FORW] + $BACK] = $e->[$from + $BACK];
+    $e->[$from + $BACK] = $e->[$to + $BACK];
+    $e->[$from + $FORW] = $to;
+    $e->[$e->[$from + $BACK] + $FORW] = $from;
+    $e->[$e->[$from + $FORW] + $BACK] = $from;
     return $self;
 }
 
@@ -93,13 +94,14 @@ sub _clear {
     @{$e} = ();
     my $n = $self->{'size'} + 2;
     for my $i (0 .. $n - 1) {
-        $e->[$i][$BACK] = ($n + $i - 1) % $n;
-        $e->[$i][$FORW] = ($n + $i + 1) % $n;
-        $e->[$i][$FKEY] = $e->[$i][$FVAL] = q();
+        my $j = $i * $NODESIZE;
+        $e->[$j + $BACK] = (($n + $i - 1) % $n) * $NODESIZE;
+        $e->[$j + $FORW] = (($n + $i + 1) % $n) * $NODESIZE;
+        $e->[$j + $FKEY] = $e->[$j + $FVAL] = q();
     }
-    $e->[$e->[$ROOT][$BACK]]->[$FORW] = $e->[$ROOT][$FORW];
-    $e->[$e->[$ROOT][$FORW]]->[$BACK] = $e->[$ROOT][$BACK];
-    $e->[$ROOT][$BACK] = $e->[$ROOT][$FORW] = $ROOT;
+    $e->[$e->[$ROOT + $BACK] + $FORW] = $e->[$ROOT + $FORW];
+    $e->[$e->[$ROOT + $FORW] + $BACK] = $e->[$ROOT + $BACK];
+    $e->[$ROOT + $BACK] = $e->[$ROOT + $FORW] = $ROOT;
     # $self->_assert or croak '_clear: fail post condition';
     return $self;
 }
@@ -107,18 +109,20 @@ sub _clear {
 sub _assert {
     my($self) = @_;
     my $e = $self->{'_list'};
-    for my $i (0 .. $#{$e}) {
-        return if ! ($e->[$e->[$i][$BACK]]->[$FORW] == $i
-                  && $e->[$e->[$i][$FORW]]->[$BACK] == $i);
+    my $i = 0;
+    while ($i < @{$e}) {
+        return if ! ($e->[$e->[$i + $BACK] + $FORW] == $i
+                  && $e->[$e->[$i + $FORW] + $BACK] == $i);
+        $i += $NODESIZE;
     }
     my %idx = %{$self->{'_index'}};
-    my $j = $e->[$ROOT][$FORW];
+    my $j = $e->[$ROOT + $FORW];
     while ($j != $ROOT) {
-        my $key = $e->[$j][$FKEY];
+        my $key = $e->[$j + $FKEY];
         return if ! exists $idx{$key};
         return if $idx{$key} != $j;
         delete $idx{$key};
-        $j = $e->[$j][$FORW];
+        $j = $e->[$j + $FORW];
     }
     return if %idx;
     return 'good';
@@ -136,7 +140,7 @@ Cache::Lrq - Least recently used cache queue in pure perl.
 
 =head1 VERSION
 
-0.02
+0.03
 
 =head1 SYNOPSIS
 

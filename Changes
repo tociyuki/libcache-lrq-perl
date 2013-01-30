@@ -1,5 +1,8 @@
 Revision history for Cache-Lrq
 
+0.03   Wed Jan 30 06:09:58 2013 UTC
+       +Flatten _list array.
+
 0.02   Wed Jan 30 03:00:37 2013 UTC
        +Using doubly linked array.
 
