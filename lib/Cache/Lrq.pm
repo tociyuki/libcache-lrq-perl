@@ -3,85 +3,124 @@ use warnings;
 use strict;
 use Carp;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
+
+# ring heads address
+my($FREE, $ROOT) = (0, 1);
+# fields of entries in doubly linked ring
+my($BACK, $FORW, $FKEY, $FVAL) = (0, 1, 2, 3);
+
+## no critic qw(AmbiguousNames)
 
 sub new {
     my($class, %arguments) = @_;
-    return bless {
+    my $self = bless {
         'size' => 256,
         '_list' => [],
         '_index' => {},
         %arguments,
     }, ref $class || $class;
+    if (@{$self->{'_list'}} != $self->{'size'} + 2) {
+        $self->_clear;
+    }
+    return $self;
 }
 
-sub set {   ## no critic qw(AmbiguousNames)
+sub set {
     my($self, $key, $value) = @_;
     # $self->_assert or croak 'set: fail pre condition';
+    my $e = $self->{'_list'};
     if (exists $self->{'_index'}{$key}) {
-        $self->get($key);   # rotate
+        $self->get($key);
     }
     else {
-        if ($self->{'size'} * 2 <= @{$self->{'_list'}}) {
-            $self->remove($self->{'_list'}[0]);     # shift
+        if ($e->[$FREE][$FORW] == $FREE) {
+            $self->remove($e->[$e->[$ROOT][$FORW]]->[$FKEY]);
         }
-        $self->{'_index'}{$key} = @{$self->{'_list'}};
-        push @{$self->{'_list'}}, $key, undef;
+        my $j = $e->[$FREE][$FORW];
+        $self->_move($j, $ROOT);
+        $self->{'_index'}{$key} = $j;
+        $e->[$j][$FKEY] = $key;
     }
+    my $i = $self->{'_index'}{$key};
     # $self->_assert or croak 'set: fail post condition';
-    $self->{'_list'}[$self->{'_index'}{$key} + 1] = $value;
+    $e->[$i][$FVAL] = $value;
     return $value;
 }
 
 sub get {
     my($self, $key) = @_;
-    # $self->_assert or croak 'get: fail pre condition';
     return if ! exists $self->{'_index'}{$key};
+    # $self->_assert or croak 'get: fail pre condition';
     my $i = $self->{'_index'}{$key};
-    if ($i + 2 < @{$self->{'_list'}}) {
-        push @{$self->{'_list'}}, splice @{$self->{'_list'}}, $i, 2;
-        $self->_reindex($i);
+    my $e = $self->{'_list'};
+    if ($i != $e->[$ROOT][$BACK]) {
+        $self->_move($i, $ROOT);
     }
     # $self->_assert or croak 'get: fail post condition';
-    return $self->{'_list'}[$self->{'_index'}{$key} + 1];
+    return $e->[$i][$FVAL];
 }
 
 sub remove {
     my($self, $key) = @_;
-    # $self->_assert or croak 'remove: fail pre condition';
     return if ! exists $self->{'_index'}{$key};
+    # $self->_assert or croak 'remove: fail pre condition';
     my $i = delete $self->{'_index'}{$key};
-    my(undef, $value) = splice @{$self->{'_list'}}, $i, 2;
-    $self->_reindex($i);
+    my $e = $self->{'_list'};
+    my $value = $e->[$i][$FVAL];
+    $self->_move($i, $FREE);
+    $e->[$i][$FKEY] = $e->[$i][$FVAL] = q();
     # $self->_assert or croak 'remove: fail post condition';
     return $value;
 }
 
-sub _reindex {
-    my($self, $i) = @_;
-    $i ||= 0;
-    my $n = @{$self->{'_list'}};
-    while ($i < $n) {
-        $self->{'_index'}{$self->{'_list'}[$i]} = $i;
-        $i += 2;
-    }
-    return;
+sub _move {
+    my($self, $from, $to) = @_;
+    my $e = $self->{'_list'};
+    $e->[$e->[$from][$BACK]]->[$FORW] = $e->[$from][$FORW];
+    $e->[$e->[$from][$FORW]]->[$BACK] = $e->[$from][$BACK];
+    $e->[$from][$BACK] = $e->[$to][$BACK];
+    $e->[$from][$FORW] = $to;
+    $e->[$e->[$from][$BACK]]->[$FORW] = $from;
+    $e->[$e->[$from][$FORW]]->[$BACK] = $from;
+    return $self;
 }
 
-# _list => [key => value, ..] where order is earliest .. latest
-# _index => {key => index of key in _list, ..}
+sub _clear {
+    my($self) = @_;
+    %{$self->{'_index'}} = ();
+    my $e = $self->{'_list'};
+    @{$e} = ();
+    my $n = $self->{'size'} + 2;
+    for my $i (0 .. $n - 1) {
+        $e->[$i][$BACK] = ($n + $i - 1) % $n;
+        $e->[$i][$FORW] = ($n + $i + 1) % $n;
+        $e->[$i][$FKEY] = $e->[$i][$FVAL] = q();
+    }
+    $e->[$e->[$ROOT][$BACK]]->[$FORW] = $e->[$ROOT][$FORW];
+    $e->[$e->[$ROOT][$FORW]]->[$BACK] = $e->[$ROOT][$BACK];
+    $e->[$ROOT][$BACK] = $e->[$ROOT][$FORW] = $ROOT;
+    # $self->_assert or croak '_clear: fail post condition';
+    return $self;
+}
+
 sub _assert {
     my($self) = @_;
-    return if @{$self->{'_list'}} > $self->{'size'} * 2;
-    my $n = 0;
-    for my $key (keys %{$self->{'_index'}}) {
-        my $i = $self->{'_index'}{$key};
-        return if $i % 2 != 0;
-        return if ! exists $self->{'_list'}[$i];
-        return if $self->{'_list'}[$i] ne $key;
-        ++$n;
+    my $e = $self->{'_list'};
+    for my $i (0 .. $#{$e}) {
+        return if ! ($e->[$e->[$i][$BACK]]->[$FORW] == $i
+                  && $e->[$e->[$i][$FORW]]->[$BACK] == $i);
     }
-    return if @{$self->{'_list'}} != $n * 2;
+    my %idx = %{$self->{'_index'}};
+    my $j = $e->[$ROOT][$FORW];
+    while ($j != $ROOT) {
+        my $key = $e->[$j][$FKEY];
+        return if ! exists $idx{$key};
+        return if $idx{$key} != $j;
+        delete $idx{$key};
+        $j = $e->[$j][$FORW];
+    }
+    return if %idx;
     return 'good';
 }
 
@@ -97,7 +136,7 @@ Cache::Lrq - Least recently used cache queue in pure perl.
 
 =head1 VERSION
 
-0.01
+0.02
 
 =head1 SYNOPSIS
 
@@ -113,7 +152,8 @@ Cache::Lrq - Least recently used cache queue in pure perl.
 
 This module provides you to put objects temporary in the
 sized queue working on Least Recently Used (LRU) way.
-The queue are the combination of a pair list and a hash index.
+The queue are the combination of a doubly linked ring
+and a hash index.
 
 =head1 METHODS 
 
