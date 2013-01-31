@@ -1,5 +1,9 @@
 Revision history for Cache-Lrq
 
+0.04   Thu Jan 31 01:32:13 2013 UTC
+       code clean up.
+       add explanations for methods in pod.
+
 0.03   Wed Jan 30 06:09:58 2013 UTC
        +Flatten _list array.
 

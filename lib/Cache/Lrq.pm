@@ -2,8 +2,9 @@ package Cache::Lrq;
 use warnings;
 use strict;
 use Carp;
+use integer;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 # ring heads address
 my($FREE, $ROOT) = (0, 4);
@@ -93,11 +94,12 @@ sub _clear {
     my $e = $self->{'_list'};
     @{$e} = ();
     my $n = $self->{'size'} + 2;
-    for my $i (0 .. $n - 1) {
-        my $j = $i * $NODESIZE;
-        $e->[$j + $BACK] = (($n + $i - 1) % $n) * $NODESIZE;
-        $e->[$j + $FORW] = (($n + $i + 1) % $n) * $NODESIZE;
-        $e->[$j + $FKEY] = $e->[$j + $FVAL] = q();
+    my $m = $n * $NODESIZE;
+    for (0 .. $n - 1) {
+        my $i = $_ * $NODESIZE;
+        $e->[$i + $BACK] = ($m + $i - $NODESIZE) % $m;
+        $e->[$i + $FORW] = ($m + $i + $NODESIZE) % $m;
+        $e->[$i + $FKEY] = $e->[$i + $FVAL] = q();
     }
     $e->[$e->[$ROOT + $BACK] + $FORW] = $e->[$ROOT + $FORW];
     $e->[$e->[$ROOT + $FORW] + $BACK] = $e->[$ROOT + $BACK];
@@ -109,11 +111,13 @@ sub _clear {
 sub _assert {
     my($self) = @_;
     my $e = $self->{'_list'};
-    my $i = 0;
-    while ($i < @{$e}) {
+    my $n = $self->{'size'} + 2;
+    my $m = $n * $NODESIZE;
+    return if @{$e} != $m;
+    for (0 .. $n - 1) {
+        my $i = $_ * $NODESIZE;
         return if ! ($e->[$e->[$i + $BACK] + $FORW] == $i
                   && $e->[$e->[$i + $FORW] + $BACK] == $i);
-        $i += $NODESIZE;
     }
     my %idx = %{$self->{'_index'}};
     my $j = $e->[$ROOT + $FORW];
@@ -140,7 +144,7 @@ Cache::Lrq - Least recently used cache queue in pure perl.
 
 =head1 VERSION
 
-0.03
+0.04
 
 =head1 SYNOPSIS
 
@@ -156,7 +160,7 @@ Cache::Lrq - Least recently used cache queue in pure perl.
 
 This module provides you to put objects temporary in the
 sized queue working on Least Recently Used (LRU) way.
-The queue are the combination of a doubly linked ring
+The queue are the combination of doubly linked rings
 and a hash index.
 
 =head1 METHODS 
@@ -167,11 +171,22 @@ Compatible with Kazuho Oku's L<Cache::LRU> module.
 
 =item C<< Cache::Lrq->new(size => $maximum_number_of_keys) >>
 
+Creates a cache object that its capacity is given
+in defaults 256 keys or from an optional size parameter.
+
 =item C<< $cache_lrq->set($key => $value) >>
+
+Sets a value as least recently used.
+The cache may remove the earliest entry
+before setting, if cache is already full. 
 
 =item C<< $cache_lrq->get($key) >>
 
+Gets a value as least recently used.
+
 =item C<< $cache_lrq->remove($key) >>
+
+Removes a given key if exists.
 
 =back
 
